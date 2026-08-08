@@ -8,7 +8,7 @@ A **3D Car Configurator** Android app for monitoring environmental sensors integ
 - **UI Framework**: Jetpack Compose
 - **3D Engine**: Sceneview (Google Filament-based, supports .glb/.gltf models)
 - **Architecture**: MVVM (Model-View-ViewModel) + StateFlow
-- **Min API**: TBD (define in build.gradle)
+- **Min API**: TBD (define in build.gradle.kts; typically 26+ for Compose support)
 
 ## Architecture Overview
 
@@ -264,7 +264,36 @@ The app configures monitoring for 6 environmental sensors, each mapped to specif
 
 See repository sensor definitions for complete camera position coordinates for each part.
 
-## Performance Optimization Tips
+## Development Workflow
+
+**Typical Feature Implementation Flow**:
+
+1. **Adding a New Sensor**
+   - Define `CarPart` in `model/CarPart.kt` with exact 3D node name
+   - Add button to `SensorButton` LazyRow in `CarConfiguratorScreen.kt`
+   - Add animation target (camera position + lookAt) to `CarConfigViewModel.animateCamera()`
+   - Test on device to verify model node name is correct
+
+2. **Fixing Camera Animation**
+   - Edit interpolation math in `CarConfigViewModel.animateCamera()`; test with `./gradlew testDebug`
+   - Verify easing function is smooth; if jerky, check that animation duration is >300ms
+   - Use Device Frame Rate Inspection in Android Profiler to detect 60 fps drops during animation
+
+3. **Highlighting Logic Changes**
+   - Modify material application in Composable or extract to utility function
+   - Always test: (a) highlighting works, (b) previous highlight clears, (c) no memory leaks during repeated switches
+   - Run Logcat + Memory Profiler to verify material instances are released
+
+4. **Model/Asset Updates**
+   - Export new `.glb` with meaningful node names (no spaces, use underscores)
+   - Replace `assets/models/car_model.glb` with new version
+   - Run app, print node names to verify they match `CarPart` definitions
+   - If node names changed, update all `CarPart.nodeName` values
+
+**PRs & Code Review**:
+- Always include a brief description of 3D coordinate math if modifying camera logic
+- Attach before/after screenshots/GIFs of sensor highlighting behavior
+- Request review from someone who tested on a physical device (emulator gaps can hide bugs)
 
 ### 3D Rendering
 - **Model loading**: Load `.glb` model once in `remember { }` block, not on every recomposition
@@ -285,13 +314,52 @@ See repository sensor definitions for complete camera position coordinates for e
 - **Coroutine scope**: Always use `viewModelScope.launch()` for ViewModel coroutines; avoid GlobalScope
 
 ## Build & Test Commands
-*To be populated once build.gradle is created:*
-- Build APK: `./gradlew assembleDebug`
-- Run tests: `./gradlew testDebug`
-- Single test file: `./gradlew testDebug --tests com.example.carconfigurator.viewmodel.CarConfigViewModelTest`
-- Lint: `./gradlew lint`
-- Build release: `./gradlew assembleRelease`
-- Run on device: `./gradlew installDebug && adb shell am start -n com.example.carconfigurator/.MainActivity`
+
+**When build.gradle.kts is created, use these commands:**
+- **Build debug APK**: `./gradlew assembleDebug`
+- **Run all tests**: `./gradlew testDebug`
+- **Run single test file**: `./gradlew testDebugUnitTest --tests com.example.carconfigurator.viewmodel.CarConfigViewModelTest`
+- **Run UI/instrumentation tests**: `./gradlew connectedAndroidTest`
+- **Run lint**: `./gradlew lint`
+- **Build release APK**: `./gradlew assembleRelease`
+- **Install and run on device**: `./gradlew installDebug && adb shell am start -n com.example.carconfigurator/.MainActivity`
+- **Continuous build/test**: `./gradlew testDebug --watch` (if using AGP 8.1+)
+
+## Testing Strategy
+
+**Unit Tests** (ViewModel, data models, camera math):
+- Place in `app/src/test/java/` 
+- Test `CarConfigViewModel` camera interpolation with various easing functions
+- Mock Sceneview interactions; avoid rendering in unit tests
+- Test sensor-to-mesh node mappings with hardcoded test fixtures
+
+**Instrumentation Tests** (Compose UI, Sceneview rendering):
+- Place in `app/src/androidTest/java/`
+- Use Compose testing (androidx.compose.ui:ui-test-junit4)
+- Verify sensor button clicks update ViewModel state
+- Test 3D model loading and material highlighting (requires emulator or device)
+- Use test fixtures for `.glb` model to avoid asset bloat
+
+**Manual Testing Checklist**:
+1. Launch app and verify car model loads without freezing
+2. Click each sensor button; confirm smooth camera animation (~400ms)
+3. Verify selected sensor node highlights with correct material/color
+4. Verify previous sensor highlight is cleared when selecting new one
+5. Test on minimum API level target device
+
+## Critical Files & Patterns
+
+**Must-Watch Files** (highest-velocity, most error-prone):
+- `CarConfigViewModel.kt` — Camera animation logic; bugs here block UI
+- `CarConfiguratorScreen.kt` — Sceneview integration; easy to break rendering pipeline
+- `CarPart.kt` (or constants file) — Sensor-to-mesh mappings must match `.glb` node names exactly; typos cause silent failures
+- Material application logic — Ensure materials are cloned before mutation; original materials can affect other nodes
+
+**Key Patterns**:
+- All 3D math is Float-based; use `Float3` consistently, not separate x/y/z parameters
+- Camera animations must clamp interpolation `t` to [0, 1] using `coerceIn()` to prevent overshoot
+- Sceneview model loading is async; always check for null before accessing model nodes
+- StateFlow emissions in ViewModel trigger Compose recomposition; keep ViewModel state minimal to avoid excessive redraws
 
 ## Key Dependencies to Expect
 - `io.github.sceneview:sceneview` (or latest version)
@@ -299,6 +367,27 @@ See repository sensor definitions for complete camera position coordinates for e
 - `androidx.lifecycle:lifecycle-viewmodel-compose`
 - `org.jetbrains.kotlinx:kotlinx-coroutines-core` (for StateFlow)
 - `androidx.compose.foundation:foundation` (for LazyRow, etc.)
+
+## Dependency & Version Management
+
+**Important** — Before upgrading any dependency:
+1. Check Sceneview GitHub releases for breaking changes (3D rendering APIs are volatile)
+2. Verify Jetpack Compose version aligns with Android Gradle Plugin version (AGP 8.x → Compose 1.6+)
+3. Test on emulator and device after major version bumps; Sceneview + Compose interactions can regress silently
+
+**Kotlin Version Strategy**:
+- Use latest stable Kotlin version compatible with Compose and Sceneview
+- Kotlin coroutines must be >= 1.7 for StateFlow stability in recomposition
+
+**BOM (Bill of Materials)** Approach (recommended):
+```gradle.kts
+dependencies {
+    val composeBom = platform("androidx.compose:compose-bom:2024.08.00")
+    implementation(composeBom)
+    implementation("androidx.compose.ui:ui")
+    // ...
+}
+```
 
 ## File Structure (when implemented)
 ```
@@ -309,21 +398,66 @@ app/
 │   │   │   ├── screen/CarConfiguratorScreen.kt
 │   │   │   └── component/SensorButton.kt
 │   │   ├── viewmodel/CarConfigViewModel.kt
-│   │   ├── model/CarPart.kt
-│   │   └── util/CameraInterpolator.kt
-│   └── assets/
-│       └── models/
-│           └── car_model.glb
-├── .github/
-│   ├── sensor definitions (sensor definitions with camera positions)
-│   └── copilot-instructions.md
+│   │   ├── model/
+│   │   │   └── CarPart.kt  # Sensor IDs, node names, camera positions
+│   │   ├── util/
+│   │   │   ├── CameraInterpolator.kt
+│   │   │   └── EasingFunctions.kt
+│   │   └── MainActivity.kt
+│   ├── assets/
+│   │   └── models/
+│   │       └── car_model.glb  # Compressed 3D model with sensor mesh nodes
+│   └── AndroidManifest.xml
+├── src/test/java/  # Unit tests (ViewModel, camera math)
+├── src/androidTest/java/  # Instrumentation tests (UI, rendering)
 ├── build.gradle.kts
-└── AndroidManifest.xml
+├── settings.gradle.kts
+├── .github/
+│   ├── workflows/  # CI/CD (build, test on PR)
+│   └── copilot-instructions.md
+└── README.md
 ```
 
-## Common Gotchas
-- **Sceneview model loading**: Ensure `.glb` is in `assets/` (not `res/raw/`) for proper loading
-- **Camera transitions**: Clamp Lerp `t` to [0, 1]; use `coerceIn()` for safety
-- **Material mutations**: Clone materials before modifying to avoid affecting unselected nodes
-- **StateFlow collection**: Always use `collectAsState()` in Compose, not `.collect()` in LaunchedEffect
-- **3D coordinates**: Verify car model's coordinate system (Y-up vs Z-up) on first load
+## Common Gotchas & Debugging
+
+**Critical Issues** (highest impact, hardest to debug):
+
+1. **3D Model Node Names Must Match Exactly**
+   - If `.glb` node is named `Air_Filter_Mesh` but code looks for `air_filter_mesh`, the model loads but highlighting silently fails
+   - Always print loaded node names during model init: `model.getChildren().forEach { println(it.name) }`
+   - Keep a reference document of all node names in a constants file (e.g., `ModelNodeNames.kt`)
+
+2. **Camera Animation Clipping**
+   - Forget to `coerceIn(0f, 1f)` interpolation `t`? Camera overshoots and jumps off-screen
+   - Always clamp: `val eased = (elapsed / durationMs).coerceIn(0f, 1f)`
+
+3. **Material Mutation Affects All Instances**
+   - Modifying `node.material` directly can affect sibling nodes if they share material references
+   - Clone before mutation: `val newMaterial = node.material?.copy() ?: Material()` (API depends on Sceneview version)
+   - Reset to original on deselection; don't leave highlighted nodes
+
+4. **StateFlow Collection Deadlock**
+   - Using `.collect()` in LaunchedEffect without proper scope can cause recomposition cycles
+   - Always use `collectAsState()` in Composables: `val selected by viewModel.selectedPartId.collectAsState()`
+   - If using LaunchedEffect, guard with a key: `LaunchedEffect(selectedPartId) { ... }`
+
+5. **3D Model Coordinate System**
+   - Verify `.glb` export coordinate system before hardcoding camera positions
+   - Most exports default to Y-up (OpenGL); some are Z-up. Wrong system = wrong camera framing
+   - Load model in preview tool (e.g., Babylon.js Viewer) to confirm axis orientation
+
+6. **Asset Packaging & Loading**
+   - `.glb` must be in `src/main/assets/` (not `res/raw/`)
+   - Sceneview may cache model; to force reload during dev: delete app data or restart process
+   - Compressed `.glb` should be <10MB; if larger, strip unused data from 3D model source
+
+7. **Emulator Performance**
+   - Sceneview rendering is GPU-intensive; emulator can be slow or unstable
+   - Test on physical device for accurate performance; emulator is fine for logic verification
+   - If emulator crashes with Sceneview: reduce texture resolution in `.glb` or use software rendering
+
+**Debugging Tips**:
+- Add logging to `LaunchedEffect` blocks: Log which sensor was selected, interpolation `t` values, final camera position
+- Use Android Profiler (Memory, GPU) to detect material/model leaks during repeated sensor switches
+- Enable verbose Sceneview logging: `SceneView.LOG_LEVEL = Logger.DEBUG`
+- Check Logcat for Filament (underlying 3D engine) errors; they appear as "Filament: ..." messages
