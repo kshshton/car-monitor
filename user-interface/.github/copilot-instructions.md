@@ -98,27 +98,23 @@ val selectedPart by viewModel.selectedPart.collectAsState()
 ### ViewModel Setup with Camera State
 ```kotlin
 class CarConfigViewModel : ViewModel() {
-    private val _selectedPart = MutableStateFlow("")
-    val selectedPart: StateFlow<String> = _selectedPart.asStateFlow()
+    private val _selectedPartId = MutableStateFlow("")
+    val selectedPartId: StateFlow<String> = _selectedPartId.asStateFlow()
     
-    private val _cameraPos = MutableStateFlow(Float3(x = 0f, y = 2f, z = 5f))
-    val cameraPos: StateFlow<Float3> = _cameraPos.asStateFlow()
+    private val _cameraPos = MutableStateFlow(Position(x = 0f, y = 1.5f, z = 2f))
+    val cameraPos: StateFlow<Position> = _cameraPos.asStateFlow()
     
-    private val _cameraTarget = MutableStateFlow(Float3(x = 0f, y = 1f, z = 0f))
-    val cameraTarget: StateFlow<Float3> = _cameraTarget.asStateFlow()
+    private val _cameraTarget = MutableStateFlow(Position(x = 0f, y = 1f, z = 0f))
+    val cameraTarget: StateFlow<Position> = _cameraTarget.asStateFlow()
     
-    // Camera animation progress [0, 1]
-    private val _cameraLerpFactor = MutableStateFlow(0f)
-    val cameraLerpFactor: StateFlow<Float> = _cameraLerpFactor.asStateFlow()
-    
-    fun selectPart(partName: String, targetPos: Float3, targetLookAt: Float3) {
-        _selectedPart.value = partName
+    fun selectPart(part: CarPart) {
+        _selectedPartId.value = part.id
         viewModelScope.launch {
-            animateCamera(targetPos, targetLookAt)
+            animateCamera(part.cameraPosition, part.cameraTarget)
         }
     }
     
-    private suspend fun animateCamera(target: Float3, lookAt: Float3) {
+    private suspend fun animateCamera(target: Position, lookAt: Position) {
         val startPos = _cameraPos.value
         val startTarget = _cameraTarget.value
         val durationMs = 400
@@ -131,17 +127,16 @@ class CarConfigViewModel : ViewModel() {
             // Smooth easing: cubic ease-out
             val eased = 1f - (1f - t).let { it * it * it }
             
-            _cameraPos.value = Float3(
+            _cameraPos.value = Position(
                 x = startPos.x + (target.x - startPos.x) * eased,
                 y = startPos.y + (target.y - startPos.y) * eased,
                 z = startPos.z + (target.z - startPos.z) * eased
             )
-            _cameraTarget.value = Float3(
+            _cameraTarget.value = Position(
                 x = startTarget.x + (lookAt.x - startTarget.x) * eased,
                 y = startTarget.y + (lookAt.y - startTarget.y) * eased,
                 z = startTarget.z + (lookAt.z - startTarget.z) * eased
             )
-            _cameraLerpFactor.value = eased
             
             if (t >= 1f) break
             delay(16) // ~60fps
@@ -244,31 +239,29 @@ private fun restoreMaterial(node: Node) {
 ### Part Definition Data Class
 ```kotlin
 data class CarPart(
-    val nodeName: String,           // Must match 3D model node name
+    val id: String,                 // Unique identifier (sensor model ID)
     val displayName: String,
-    val cameraPos: Float3,          // Camera position to frame this part
-    val cameraLookAt: Float3,       // Where camera looks at
-    @DrawableRes val iconRes: Int
+    val nodeName: String,           // Must match 3D model node name exactly
+    val cameraPosition: Position,   // Camera position to frame this part
+    val cameraTarget: Position      // Where camera looks at
 )
 
-val carParts = listOf(
-    CarPart(
-        nodeName = "Engine_Mesh",
-        displayName = "Engine",
-        cameraPos = Float3(x = 0.5f, y = 1.5f, z = 1.2f),
-        cameraLookAt = Float3(x = 0.5f, y = 1f, z = 0f),
-        iconRes = R.drawable.ic_engine
-    ),
-    CarPart(
-        nodeName = "Suspension_Front",
-        displayName = "Suspension",
-        cameraPos = Float3(x = 0.8f, y = 0.2f, z = 0.8f),
-        cameraLookAt = Float3(x = 0.8f, y = 0.5f, z = 0f),
-        iconRes = R.drawable.ic_suspension
-    )
-    // ... more parts
-)
+data class Position(val x: Float, val y: Float, val z: Float)
 ```
+
+**Car Parts Reference** (defined in `car-parts.md`):
+The app configures monitoring for 6 environmental sensors, each mapped to specific car locations:
+
+| Sensor | Display Name | Node Name | Purpose |
+|--------|--------------|-----------|---------|
+| PMS5003 | Air & Particulate Filter | `Air_Filter_Mesh` | Air quality, particulate matter |
+| ENS160 | VOC & eCO2 Sensor | `Dashboard_Vent_Mesh` | Volatile organic compounds, CO2 equiv. |
+| SCD41 | Cabin CO2 Sensor | `Center_Console_Mesh` | CO2 levels in cabin |
+| SEN0441 | Formaldehyde Sensor | `Rear_Seats_Mesh` | Off-gassing detection |
+| BME280 | Barometric & Temp Sensor | `Engine_Manifold_Mesh` | Pressure, temp in engine bay |
+| DS18B20 | Outdoor Temp Sensor | `Front_Bumper_Radiator_Mesh` | External ambient temperature |
+
+See `car-parts.md` for complete camera position coordinates for each part.
 
 ## Performance Optimization Tips
 
