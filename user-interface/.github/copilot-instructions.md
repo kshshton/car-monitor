@@ -1,7 +1,7 @@
 # 3D Car Configurator - Copilot Instructions
 
 ## Project Overview
-A **3D Car Configurator** Android app built with Kotlin, Jetpack Compose, and Sceneview. Users interact with a 3D car model, selecting different parts (engine, suspension, wheels, body) with smooth camera animations and visual highlighting.
+A **3D Car Configurator** Android app for monitoring environmental sensors integrated into a vehicle. Built with Kotlin, Jetpack Compose, and Sceneview, it provides an interactive 3D visualization of where 6 different environmental sensors are located and what they monitor. Users select sensors from a bottom menu, triggering smooth camera animations to frame each sensor location and visual highlighting on the 3D model.
 
 ## Technology Stack
 - **Language**: Kotlin
@@ -46,23 +46,25 @@ A **3D Car Configurator** Android app built with Kotlin, Jetpack Compose, and Sc
 ## Core Functional Requirements
 
 1. **3D Model Loading**
-   - Load compressed `.glb` file from `assets/` directory
-   - Parse and identify sub-nodes by name (e.g., "Engine_Mesh", "Suspension_Front")
+   - Load compressed `.glb` file from `assets/` directory (car with 6 sensor locations)
+   - Parse and identify sensor mesh nodes by name (e.g., "Air_Filter_Mesh", "Dashboard_Vent_Mesh")
    - Cache model to avoid repeated loads
 
-2. **Part Selection (UI)**
-   - Bottom menu (LazyRow) with buttons for each car part
-   - Button click updates `selectedPart` StateFlow in ViewModel
-   - UI reflects selection state with highlighting
+2. **Sensor Selection (UI)**
+   - Bottom menu (LazyRow) with buttons for each of 6 environmental sensors
+   - Button click updates `selectedPartId` StateFlow in ViewModel with sensor ID
+   - UI reflects selection state with visual highlighting
+   - Reference: complete sensor list in repository sensor definitions
 
 3. **Camera Animation**
-   - Smooth camera position interpolation (Lerp) when user selects a part
-   - Each part has a target camera position and look-at point
-   - Animate over ~300-500ms using onFrame callback
+   - Smooth camera position interpolation (Lerp) when user selects a sensor
+   - Each sensor has a predefined camera position and look-at point (from repository sensor definitions)
+   - Animate over ~400ms using smooth easing (cubic ease-out)
+   - Position data includes exact coordinates for all 6 sensors
 
-4. **Part Highlighting**
-   - Modify selected node's material: adjust EmissiveFactor/EmissiveColor
-   - Or swap material entirely to show selection
+4. **Sensor Highlighting**
+   - Modify selected sensor node's material: adjust EmissiveFactor/EmissiveColor
+   - Visual feedback shows which sensor location is currently being viewed
    - Restore original material when deselected
 
 ## Code Standards & Patterns
@@ -83,9 +85,10 @@ val selectedPart by viewModel.selectedPart.collectAsState()
 - Lerp formula: `current = start + (target - start) * t` where `t ∈ [0, 1]`
 
 ### Naming Conventions
-- **ViewModel properties**: `selectedPart`, `cameraPos`, `targetNode` (camelCase, descriptive)
-- **Composables**: `CarConfiguratorScreen`, `PartSelector` (PascalCase)
-- **3D Node references**: Match model export names exactly (e.g., "Engine_Mesh", "Body_01")
+- **ViewModel properties**: `selectedPartId`, `cameraPos`, `cameraTarget` (camelCase, descriptive)
+- **Composables**: `CarConfiguratorScreen`, `SensorButton` (PascalCase)
+- **3D Node references**: Match model export names exactly (e.g., "Air_Filter_Mesh", "Dashboard_Vent_Mesh")
+- **Sensor IDs**: Match sensor model codes (e.g., "pms5003_01", "ens160_01", "scd41_01")
 - **Material/Color variables**: `highlightEmissiveColor`, `defaultMaterial` (clear intent)
 
 ### Compose Structure
@@ -149,7 +152,7 @@ class CarConfigViewModel : ViewModel() {
 ```kotlin
 @Composable
 fun CarConfiguratorScreen(viewModel: CarConfigViewModel) {
-    val selectedPart by viewModel.selectedPart.collectAsState()
+    val selectedPartId by viewModel.selectedPartId.collectAsState()
     val cameraPos by viewModel.cameraPos.collectAsState()
     val cameraTarget by viewModel.cameraTarget.collectAsState()
     
@@ -157,7 +160,7 @@ fun CarConfiguratorScreen(viewModel: CarConfigViewModel) {
     var carModel by remember { mutableStateOf<ModelInstance?>(null) }
     
     Box(modifier = Modifier.fillMaxSize()) {
-        // 3D Sceneview
+        // 3D Sceneview - renders the car with sensors
         SceneViewComposable(
             modifier = Modifier.fillMaxSize(),
             onSceneViewCreated = { sv ->
@@ -169,49 +172,48 @@ fun CarConfiguratorScreen(viewModel: CarConfigViewModel) {
             }
         )
         
-        // Update camera position in onFrame callback
+        // Update camera position based on selected sensor
         LaunchedEffect(cameraPos, cameraTarget) {
             sceneView?.onFrame = {
                 sceneView?.cameraNode?.apply {
-                    position = cameraPos
-                    lookAt(cameraTarget)
+                    position = cameraPos.toFloat3()
+                    lookAt(cameraTarget.toFloat3())
                 }
             }
         }
         
-        // Highlight selected part by modifying material
-        LaunchedEffect(selectedPart) {
+        // Highlight selected sensor node
+        LaunchedEffect(selectedPartId) {
             carModel?.let { model ->
                 // Clear previous highlights
                 model.getChildren<Node>().forEach { node ->
                     restoreMaterial(node)
                 }
                 
-                // Highlight selected node
-                val selectedNode = model.getChildByName(selectedPart)
-                selectedNode?.let { node ->
-                    applyHighlightMaterial(node)
+                // Find and highlight selected sensor
+                carParts.find { it.id == selectedPartId }?.let { part ->
+                    val sensorNode = model.getChildByName(part.nodeName)
+                    sensorNode?.let { node ->
+                        applyHighlightMaterial(node)
+                    }
                 }
             }
         }
         
-        // Part selector UI overlay
+        // Sensor selector UI overlay (bottom)
         LazyRow(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(16.dp),
+                .padding(16.dp)
+                .fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(carParts) { part ->
-                PartButton(
+                SensorButton(
                     part = part,
-                    isSelected = selectedPart == part.nodeName,
+                    isSelected = selectedPartId == part.id,
                     onClick = {
-                        viewModel.selectPart(
-                            part.nodeName,
-                            part.cameraPos,
-                            part.cameraLookAt
-                        )
+                        viewModel.selectPart(part)
                     }
                 )
             }
@@ -219,17 +221,16 @@ fun CarConfiguratorScreen(viewModel: CarConfigViewModel) {
     }
 }
 
-// Helper to apply emissive highlight to a node
+private fun Position.toFloat3() = Float3(x, y, z)
+
 private fun applyHighlightMaterial(node: Node) {
     node.renderableInstance?.material?.let { material ->
-        // Modify or clone material
         material.setParameter("emissiveFactor", FloatArray(4) { 1f })
         material.setParameter("emissiveColor", Color(0xFFFF6B6B)) // Red highlight
     }
 }
 
 private fun restoreMaterial(node: Node) {
-    // Restore default material (you may need to cache originals)
     node.renderableInstance?.material?.let { material ->
         material.setParameter("emissiveFactor", FloatArray(4) { 0f })
     }
@@ -249,7 +250,7 @@ data class CarPart(
 data class Position(val x: Float, val y: Float, val z: Float)
 ```
 
-**Car Parts Reference** (defined in `car-parts.md`):
+**Car Parts Reference** (defined in repository sensor definitions):
 The app configures monitoring for 6 environmental sensors, each mapped to specific car locations:
 
 | Sensor | Display Name | Node Name | Purpose |
@@ -261,7 +262,7 @@ The app configures monitoring for 6 environmental sensors, each mapped to specif
 | BME280 | Barometric & Temp Sensor | `Engine_Manifold_Mesh` | Pressure, temp in engine bay |
 | DS18B20 | Outdoor Temp Sensor | `Front_Bumper_Radiator_Mesh` | External ambient temperature |
 
-See `car-parts.md` for complete camera position coordinates for each part.
+See repository sensor definitions for complete camera position coordinates for each part.
 
 ## Performance Optimization Tips
 
@@ -303,16 +304,19 @@ See `car-parts.md` for complete camera position coordinates for each part.
 ```
 app/
 ├── src/main/
-│   ├── kotlin/com/example/carconfigurator/
+│   ├── kotlin/com/example/carmonitor/
 │   │   ├── ui/
 │   │   │   ├── screen/CarConfiguratorScreen.kt
-│   │   │   └── component/PartSelector.kt
+│   │   │   └── component/SensorButton.kt
 │   │   ├── viewmodel/CarConfigViewModel.kt
 │   │   ├── model/CarPart.kt
 │   │   └── util/CameraInterpolator.kt
 │   └── assets/
 │       └── models/
 │           └── car_model.glb
+├── .github/
+│   ├── sensor definitions (sensor definitions with camera positions)
+│   └── copilot-instructions.md
 ├── build.gradle.kts
 └── AndroidManifest.xml
 ```
