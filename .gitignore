@@ -1,0 +1,8 @@
+# Ignore modernization hooks output and session logs
+.github/modernize/java-upgrade/*/hooks/
+consumer/.github/modernize/java-upgrade/*/hooks/
+
+# IDE and build artifacts
+target/
+/.idea/
+.vscode/
