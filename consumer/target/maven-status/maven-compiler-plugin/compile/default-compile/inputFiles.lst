@@ -1,0 +1,5 @@
+/home/owen/Projects/car-monitor/consumer/src/main/java/com/car/monitor/consumer/ConsumerApplication.java
+/home/owen/Projects/car-monitor/consumer/src/main/java/com/car/monitor/consumer/config/KafkaStreamsConfig.java
+/home/owen/Projects/car-monitor/consumer/src/main/java/com/car/monitor/consumer/config/MqttBridgeConfig.java
+/home/owen/Projects/car-monitor/consumer/src/main/java/com/car/monitor/consumer/domain/SensorEvent.java
+/home/owen/Projects/car-monitor/consumer/src/main/java/com/car/monitor/consumer/stream/SensorTopologyService.java
