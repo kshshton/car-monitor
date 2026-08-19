@@ -1,6 +1,7 @@
-# Ignore modernization hooks output and session logs
-.github/modernize/java-upgrade/*/hooks/
-consumer/.github/modernize/java-upgrade/*/hooks/
+# Ignore modernization hooks JSON logs (session outputs); keep scripts tracked
+.github/modernize/java-upgrade/*/hooks/*.json
+consumer/.github/modernize/java-upgrade/*/hooks/*.json
+.github/modernize/java-upgrade/*/hooks/*.log
 
 # IDE and build artifacts
 target/
